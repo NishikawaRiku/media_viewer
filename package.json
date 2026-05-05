@@ -1,0 +1,23 @@
+{
+  "name": "media_viewer",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@ts-ffmpeg/fluent-ffmpeg": "^2.2.6",
+    "express": "^5.1.0",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "fs-extra": "^11.3.1",
+    "open": "^10.2.0",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.34.3"
+  }
+}

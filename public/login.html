@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Viewer</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=1">
+    <style>
+        html, body { height: 100%; margin: 0; padding: 0; background: var(--bg-color); color: var(--text-color); font-family: 'Segoe UI', 'Meiryo', sans-serif; }
+        body { display: flex; justify-content: center; align-items: center; }
+
+        [theme="light"] { --bg-color: #f0f4f8; --text-color: #263845; --text-muted: #78909c; --header-bg: #ffffff; --button-bg: #e8eef4; --button-text: #455a64; --border-color: #cfd8e3; --active-bg: #0288d1; --active-text: #ffffff; --card-shadow-hover: 0 6px 20px rgba(38, 56, 69, 0.18); }
+
+        [theme="dark"] { --bg-color: #0f1923; --text-color: #e0e6ed; --text-muted: #90a4ae; --header-bg: #1a2732; --button-bg: #263845; --button-text: #b0bec5; --border-color: #37474f; --active-bg: #4fc3f7; --active-text: #0f1923; --card-shadow-hover: 0 6px 24px rgba(0, 0, 0, 0.50); }
+
+        .login-popup { width: min(320px, calc(100vw - 40px)); padding: 36px 32px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--header-bg); box-shadow: var(--card-shadow-hover); }
+        .login-text { margin-bottom: 20px; color: var(--text-color); font-size: 1.1rem; font-weight: 700; letter-spacing: 0.5px; text-align: center; }
+        .login-input { width: 100%; height: 32px; padding: 4px 12px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-color); color: var(--text-color); font-family: 'Segoe UI', 'Meiryo', sans-serif; font-size: 0.85rem; outline: none; transition: border-color 0.15s; }
+        .login-input:focus { border-color: var(--active-bg); }
+        .login-input.error, .login-input.error:focus { border-color: #f87171; }
+        .login-error-message { margin-bottom: 8px; color: #f87171; font-size: 0.75rem; font-weight: 600; text-align: left; }
+        .login-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+        .login-save { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.75rem; cursor: pointer; user-select: none; }
+        .login-save input[type="checkbox"] { flex-shrink: 0; width: 14px; height: 14px; accent-color: var(--active-bg); cursor: pointer; }
+        .login-button { height: 32px; padding: 4px 16px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--button-bg); color: var(--button-text); font-family: 'Segoe UI', 'Meiryo', sans-serif; font-size: 0.8rem; font-weight: 700; white-space: nowrap; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        .login-button:hover { border-color: var(--active-bg); background: var(--active-bg); color: var(--active-text); }
+    </style>
+</head>
+<body>
+    <div class="login-popup">
+        <div class="login-text">Media Viewer</div>
+        <form method="post" action="/login">
+            <input class="login-input" type="password" name="password" placeholder="パスワード" autofocus autocomplete="current-password">
+            <div class="login-controls">
+                <label class="login-save">
+                    <input type="checkbox" name="save" id="save">
+                    認証状態を保存する
+                </label>
+                <button class="login-button" type="submit">認証</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        const savedTheme = localStorage.getItem("theme") || "device";
+        const isLight    = savedTheme === "light" || (savedTheme === "device" && matchMedia("(prefers-color-scheme: light)").matches);
+
+        document.body.setAttribute("theme", isLight ? "light" : "dark");
+
+        document.addEventListener("DOMContentLoaded", () => { if (!location.search.includes("error=true")) return; const input = document.querySelector(".login-input"); input.classList.add("error"); const errorMessage = document.createElement("p"); errorMessage.className = "login-error-message"; errorMessage.textContent = "※パスワードが間違っています"; input.before(errorMessage); });
+    </script>
+</body>
+</html>

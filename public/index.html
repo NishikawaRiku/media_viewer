@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Viewer</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=1">
+    <style>
+        :root { --header-height: 130px; --footer-height: 30px; }
+        html, body { position: relative; height: 100%; margin: 0; padding: 0; overflow: hidden; background: var(--bg-color); color: var(--text-color); font-family: 'Segoe UI', 'Meiryo', sans-serif; }
+        body.no-scroll { overflow: hidden; touch-action: none; }
+        body.theme-switching * { transition: none !important; }
+        body.theme-switching .theme-icon { transition: transform 0.6s ease !important; }
+
+        [theme="light"] { --bg-color: #f0f4f8; --text-color: #263845; --text-muted: #78909c; --header-bg: #ffffff; --button-bg: #e8eef4; --button-text: #455a64; --border-color: #cfd8e3; --border-subtle: #e8eef4; --active-bg: #0288d1; --active-text: #ffffff; --scrollbar-thumb: #b0bec5; --card-shadow: 0 2px 8px rgba(38, 56, 69, 0.10); --card-shadow-hover: 0 6px 20px rgba(38, 56, 69, 0.18); --header-shadow: 0 2px 8px rgba(38, 56, 69, 0.12); }
+        [theme="light"] .theme-icon { background: radial-gradient(circle at center, #ffdf5d 40%, #f7b500 100%); transform: translateX(-8px); }
+        [theme="light"] #media-modal { background: rgba(240, 244, 248, 0.94); }
+        [theme="light"] .filter-label, [theme="light"] .sort-label { color: #607d8b; }
+        [theme="light"] footer { border-top: 1px solid #cfd8e3; background: #ffffff; color: #78909c; }
+
+        [theme="dark"] { --bg-color: #0f1923; --text-color: #e0e6ed; --text-muted: #90a4ae; --header-bg: #1a2732; --button-bg: #263845; --button-text: #b0bec5; --border-color: #37474f; --border-subtle: #263845; --active-bg: #4fc3f7; --active-text: #0f1923; --scrollbar-thumb: #37474f; --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.30); --card-shadow-hover: 0 6px 24px rgba(0, 0, 0, 0.50); --header-shadow: 0 2px 8px rgba(0, 0, 0, 0.40); }
+        [theme="dark"] .theme-icon { position: relative; background: radial-gradient(circle at 30% 30%, #f5f5f5 40%, #b8b8b8 100%); transform: translateX(8px); }
+        [theme="dark"] .theme-icon::before { content: ""; position: absolute; left: 6px; width: 12px; height: 12px; border-radius: 50%; background: var(--button-bg); transition: background 0.15s ease; }
+        [theme="dark"] .theme-toggle:hover .theme-icon::before { background: var(--active-bg); }
+        [theme="dark"] .theme-toggle:focus:not(:hover) .theme-icon::before { background: var(--button-bg); }
+        [theme="dark"] #media-modal { background: rgba(15, 25, 35, 0.92); }
+        [theme="dark"] .filter-label, [theme="dark"] .sort-label { color: #607d8b; }
+        [theme="dark"] footer { border-top: 1px solid #37474f; background: #1a2732; color: #90a4ae; }
+
+        header { position: fixed; top: 0; left: 0; z-index: 2; display: flex; flex-direction: column; width: 100%; height: var(--header-height); padding: 8px; box-sizing: border-box; border-bottom: 1px solid var(--border-color); background: var(--header-bg); box-shadow: var(--header-shadow); }
+        header.refine-closed { padding-bottom: 8px; }
+
+        .header-top { display: flex; justify-content: space-between; align-items: center; }
+        .title-text { color: var(--text-color); font-size: 1.1rem; font-weight: 700; letter-spacing: 0.5px; cursor: pointer; user-select: none; }
+        .header-top .control-panel { display: flex; align-items: center; gap: 8px; }
+        .header-top button, .header-bottom .control-panel button { height: 28px; padding: 4px 12px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 6px; background: var(--button-bg); color: var(--button-text); font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        .header-top button:hover, .header-bottom .control-panel button:hover { border-color: var(--active-bg); background: var(--active-bg); color: var(--active-text); }
+        .header-top button.active, .header-bottom .control-panel button.active { border-color: var(--active-bg); background: var(--active-bg); color: var(--active-text); }
+        .header-top button:focus, .header-bottom .control-panel button:focus, .sort-toggle:focus, #qr-copy:focus { outline: none; }
+        .header-top button:focus:not(:hover), .header-bottom .control-panel button:focus:not(:hover), .sort-toggle:focus:not(:hover), #qr-copy:focus:not(:hover) { border-color: var(--border-color); background: var(--button-bg); color: var(--button-text); }
+        .header-top select, .header-bottom .control-panel select { height: 28px; padding: 4px 28px 4px 10px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 6px; background-color: var(--button-bg); color: var(--button-text); font-size: 0.8rem; font-weight: 700; cursor: pointer; appearance: none; -webkit-appearance: none; -moz-appearance: none; transition: background-color 0.15s, color 0.15s, border-color 0.15s; }
+        .header-top select:focus, .header-bottom .control-panel select:focus { outline: none; }
+        .qr-toggle { padding: 4px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--button-bg); color: var(--button-text); font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        .qr-toggle:hover { border-color: var(--active-bg); background: var(--active-bg); color: var(--active-text); }
+        #qr-popup { position: fixed; top: 40px; right: 0; z-index: 9999; display: none; margin-top: 6px; pointer-events: auto; }
+        .qr-content { width: 220px; padding: 12px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 10px; background: var(--header-bg); color: var(--text-color); text-align: center; box-shadow: var(--card-shadow-hover); }
+        .qr-content img { width: 100%; height: auto; margin-top: 8px; border-radius: 6px; }
+        .qr-controls { display: flex; align-items: stretch; gap: 6px; }
+        #qr-link { flex: 1; min-width: 0; padding: 4px 8px; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-muted); font-size: 0.75rem; white-space: nowrap; text-overflow: ellipsis; outline: none; cursor: text; }
+        #qr-copy { display: flex; flex-shrink: 0; align-items: center; justify-content: center; padding: 0 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--button-bg); color: var(--button-text); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        #qr-copy:hover, #qr-copy.copied { border-color: var(--active-bg); background: var(--active-bg); color: var(--active-text); }
+        #qr-copy svg { display: block; pointer-events: none; }
+        .theme-toggle { position: relative; display: flex; align-items: center; justify-content: center; width: 46px; height: 28px; overflow: hidden; border: 1px solid var(--border-color); border-radius: 6px; background: var(--button-bg); cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+        .theme-icon { position: relative; flex-shrink: 0; width: 16px; height: 16px; border-radius: 50%; transition: transform 0.6s ease, background 0.3s ease; }
+
+        .header-middle { position: relative; display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+        .header-middle::before { content: ""; position: absolute; top: 0; left: 0; z-index: 1; width: 48px; height: 100%; background: linear-gradient(to left, transparent, var(--header-bg)); opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+        .header-middle.nav-overflow-left::before { opacity: 1; }
+        .header-middle::after { content: ""; position: absolute; top: 0; right: 34px; z-index: 1; width: 48px; height: 100%; background: linear-gradient(to right, transparent, var(--header-bg)); opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+        .header-middle.nav-overflow::after { opacity: 1; }
+        .directory-nav { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 28px; box-sizing: border-box; overflow-x: auto; overflow-y: hidden; white-space: nowrap; scrollbar-width: none; cursor: grab; }
+        .directory-nav::-webkit-scrollbar { display: none; }
+        .directory-nav button { flex-shrink: 0; padding: 4px 14px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--button-bg); color: var(--button-text); font-size: 0.8rem; font-weight: 700; line-height: 1.4; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        .directory-nav button.active { border-color: var(--active-bg); background: var(--active-bg); color: var(--active-text); box-shadow: 0 2px 10px rgba(79, 195, 247, 0.25); cursor: default; }
+        .directory-nav button:not(.active):hover { border-color: var(--active-bg); background: var(--active-bg); color: var(--active-text); }
+        #refine-toggle { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 28px; height: 28px; color: var(--button-text); cursor: pointer; transition: color 0.15s; -webkit-tap-highlight-color: transparent; }
+        #refine-toggle svg { transform: rotate(90deg); transition: transform 0.2s ease; }
+        #refine-toggle.open svg { transform: rotate(0deg); }
+
+        .header-bottom { height: 28px; margin-top: 8px; }
+        .header-bottom .control-panel { z-index: 2; display: flex; justify-content: space-between; align-items: center; height: 28px; background: var(--header-bg); }
+        .header-bottom .control-panel select option { background-color: var(--header-bg); color: var(--button-text); }
+        .filter-controls, .sort-controls { display: flex; align-items: center; gap: 8px; overflow: hidden; white-space: nowrap; }
+        .filter-label, .sort-label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.3px; }
+        .filter-wrapper { position: relative; display: inline-flex; align-items: center; }
+        .filter-wrapper::after { content: ""; position: absolute; top: 50%; right: 10px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--button-text); transform: translateY(-50%); pointer-events: none; transition: border-top-color 0.15s; }
+        .filter-wrapper:hover::after { border-top-color: var(--active-text); }
+        .filter-wrapper:hover select { border-color: var(--active-bg); background-color: var(--active-bg); color: var(--active-text); }
+        .sort-toggle { padding: 4px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--button-bg); color: var(--button-text); font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        .sort-toggle:hover { border-color: var(--active-bg); background: var(--active-bg); color: var(--active-text); }
+
+        .separator { flex-shrink: 0; height: 1px; margin: 8px 0 0; background: linear-gradient(to right, transparent 0%, var(--border-color) 15%, var(--border-color) 85%, transparent 100%); }
+
+        main { position: fixed; top: var(--header-height); right: 0; bottom: var(--footer-height); left: 0; z-index: 0; padding: 16px; box-sizing: border-box; overflow-y: auto; background: var(--bg-color); scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+        main::-webkit-scrollbar { width: 5px; }
+        main::-webkit-scrollbar-thumb { border-radius: 3px; background-color: var(--scrollbar-thumb); }
+        main::-webkit-scrollbar-track { background: transparent; }
+
+        #loading-overlay { position: fixed; top: 0; left: 0; z-index: 3; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: var(--bg-color); }
+        .loading-spinner { width: 44px; height: 44px; border: 3px solid var(--border-color); border-top-color: var(--active-bg); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .media-section { position: relative; z-index: 1; }
+        .media-list { position: relative; z-index: 1; }
+        .gallery-item { position: absolute; height: auto; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 8px; box-shadow: var(--card-shadow); cursor: pointer; transition: box-shadow 0.2s ease, filter 0.2s ease, border-color 0.2s ease; -webkit-tap-highlight-color: transparent; }
+        .gallery-item.highlight { z-index: 2; border-color: #ffdf5d; box-shadow: 0 0 0 3px #ffdf5d; transition: none; }
+
+        #empty-message { position: fixed; top: 50%; left: 50%; z-index: 1; display: none; color: var(--text-muted); font-size: 0.9rem; text-align: center; white-space: nowrap; transform: translate(-50%, -50%); }
+        #scroll-sentinel { width: 100%; height: 1px; }
+
+        #media-modal { position: fixed; top: 0; left: 0; z-index: 5; display: none; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 6px 0; box-sizing: border-box; }
+        #media-modal img, #media-modal video { width: auto; height: auto; max-width: 95vw; max-height: calc(100dvh - 80px); border-radius: 8px; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5); object-fit: contain; }
+        .media-counter { position: absolute; bottom: 6px; left: 50%; z-index: 5; display: flex; align-items: center; height: 28px; padding: 0 16px; box-sizing: border-box; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; background: rgba(15, 25, 35, 0.80); color: #e0e6ed; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.5px; white-space: nowrap; transform: translateX(-50%); }
+
+        footer { position: fixed; bottom: 0; left: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; width: 100%; height: var(--footer-height); padding: 0 16px; box-sizing: border-box; font-size: 0.75rem; font-weight: 600; }
+        .count-text { display: flex; align-items: center; gap: 8px; }
+        .divider { color: var(--border-color); font-size: 0.7rem; }
+        .author-text { color: var(--text-muted); font-size: 0.75rem; }
+
+        @media (hover: hover) and (pointer: fine) { #refine-toggle:hover { color: var(--active-bg); } .gallery-item:hover { z-index: 2; border-color: var(--active-bg); box-shadow: var(--card-shadow-hover), 0 0 0 2px var(--active-bg); filter: brightness(1.12) saturate(1.1); transform: scale(1.02); } }
+        @media (hover: none) { .header-top button:hover { border-color: var(--border-color); background: var(--button-bg); color: var(--button-text); } .sort-toggle:hover, .header-bottom .control-panel button:hover { border-color: var(--border-color); background: var(--button-bg); color: var(--button-text); } .filter-wrapper:hover select { border-color: var(--border-color); background-color: var(--button-bg); color: var(--button-text); } .filter-wrapper:hover::after { border-top-color: var(--button-text); } .gallery-item:hover, .gallery-item:active { border-color: var(--border-subtle); box-shadow: var(--card-shadow); filter: none; transform: none; } [theme="dark"] .theme-toggle:hover .theme-icon::before { background: var(--button-bg); } }
+        @media (pointer: coarse) { .gallery-item:hover, .gallery-item:active { border-color: var(--border-subtle); box-shadow: var(--card-shadow); filter: none; transform: none; } #media-modal::before { content: ""; position: absolute; top: 50%; left: 50%; z-index: -1; width: 95vw; height: calc(100dvh - 80px); border-radius: 8px; transform: translate(-50%, -50%); pointer-events: none; } [theme="light"] #media-modal::before { background-color: rgba(38, 56, 69, 0.08); } [theme="dark"] #media-modal::before { background-color: rgba(255, 255, 255, 0.05); } }
+    </style>
+</head>
+<body theme="device">
+    <div id="app"></div>
+
+    <template id="computer-template">
+        <header>
+            <div class="header-top">
+                <div class="title-text">Media Viewer</div>
+                <div class="control-panel">
+                    <button id="qr-toggle" class="qr-toggle">QR</button>
+                    <div id="qr-popup">
+                        <div class="qr-content">
+                            <div class="qr-controls">
+                                <input id="qr-link" type="text" readonly>
+                                <button id="qr-copy">
+                                    <svg class="copy-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                    </svg>
+                                    <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </button>
+                            </div>
+                            <img id="qr-image" alt="QR Code">
+                        </div>
+                    </div>
+                    <button id="theme-toggle" class="theme-toggle">
+                        <span class="theme-icon"></span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="header-middle">
+                <nav class="directory-nav" id="directory-nav"></nav>
+                <div id="refine-toggle"><svg width="16" height="16" viewBox="0 0 12 12" fill="none"><path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            </div>
+
+            <div class="separator"></div>
+
+            <div class="header-bottom">
+                <div class="control-panel">
+                    <div class="filter-controls">
+                        <span class="filter-label">絞り込み:</span>
+                        <div class="filter-wrapper">
+                            <select id="filter-select">
+                                <option value="all">全て</option>
+                                <option value="image">画像</option>
+                                <option value="video">動画</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="sort-controls">
+                        <span class="sort-label">並べ替え:</span>
+                        <button class="sort-toggle" id="mode-toggle">名前順</button>
+                        <button class="sort-toggle" id="order-toggle">昇順</button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <div id="loading-overlay">
+                <div class="loading-spinner"></div>
+            </div>
+
+            <section class="media-section">
+                <div class="media-list" id="media-list"></div>
+                <div id="scroll-sentinel"></div>
+            </section>
+
+            <div id="empty-message">該当する項目が見つかりませんでした</div>
+        </main>
+
+        <div id="media-modal">
+            <img src="" alt="">
+            <video src="" autoplay loop muted playsinline style="display:none;"></video>
+            <div class="media-counter"></div>
+        </div>
+
+        <footer>
+            <div class="count-text">
+                <span id="all-count"></span>
+                <span class="divider">|</span>
+                <span id="image-count"></span>
+                <span class="divider">|</span>
+                <span id="video-count"></span>
+            </div>
+            <div class="author-text">© にしかわ</div>
+        </footer>
+    </template>
+
+    <template id="mobile-template">
+        <header>
+            <div class="header-top">
+                <div class="title-text">Media Viewer</div>
+                <div class="control-panel">
+                    <button id="theme-toggle" class="theme-toggle">
+                        <span class="theme-icon"></span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="header-middle">
+                <nav class="directory-nav" id="directory-nav"></nav>
+                <div id="refine-toggle"><svg width="16" height="16" viewBox="0 0 12 12" fill="none"><path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            </div>
+
+            <div class="separator"></div>
+
+            <div class="header-bottom">
+                <div class="control-panel">
+                    <div class="filter-controls">
+                        <span class="filter-label">絞り込み:</span>
+                        <div class="filter-wrapper">
+                            <select id="filter-select">
+                                <option value="all">全て</option>
+                                <option value="image">画像</option>
+                                <option value="video">動画</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="sort-controls">
+                        <span class="sort-label">並べ替え:</span>
+                        <button class="sort-toggle" id="mode-toggle">名前順</button>
+                        <button class="sort-toggle" id="order-toggle">昇順</button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <div id="loading-overlay">
+                <div class="loading-spinner"></div>
+            </div>
+
+            <section class="media-section">
+                <div class="media-list" id="media-list"></div>
+                <div id="scroll-sentinel"></div>
+            </section>
+
+            <div id="empty-message">該当する項目が見つかりませんでした</div>
+        </main>
+
+        <div id="media-modal">
+            <img src="" alt="">
+            <video src="" autoplay loop muted playsinline style="display:none;"></video>
+            <div class="media-counter"></div>
+        </div>
+
+        <footer>
+            <div class="count-text">
+                <span id="all-count"></span>
+                <span class="divider">|</span>
+                <span id="image-count"></span>
+                <span class="divider">|</span>
+                <span id="video-count"></span>
+            </div>
+            <div class="author-text">© にしかわ</div>
+        </footer>
+    </template>
+
+    <script>
+        const layoutCache   = new Map();
+        const dirState      = new Map();
+        const thumbCache    = new Map();
+        const fullLoadedSet = new Set();
+
+        let activeDirectory = null;
+
+        const applyTheme  = (theme) => { document.body.classList.add("theme-switching"); document.body.setAttribute("theme", theme); localStorage.setItem("theme", theme); requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("theme-switching"))); };
+        const detectTheme = ()      => window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+
+        const showLoading = () => { loadingOverlay.style.display = "flex"; document.body.classList.add("no-scroll"); };
+        const hideLoading = () => { loadingOverlay.style.display = "none"; document.body.classList.remove("no-scroll"); };
+
+        const sortParam  = (mode)  => mode === "名前順" ? "name" : "time";
+        const orderParam = (order) => order === "昇順" ? "asc" : "desc";
+
+        const saveDirSettings = (name, state) => localStorage.setItem(`directory_settings_${name}`, JSON.stringify({ filter: state.filter, mode: state.mode, order: state.order }));
+        const loadDirSettings = (name)        => { try { return JSON.parse(localStorage.getItem(`directory_settings_${name}`)) || {}; } catch { return {}; } };
+
+        const isVideoFile = (path) => ["mp4", "mov", "gif", "webm"].includes(path.split(".").pop().toLowerCase());
+
+        const app      = document.getElementById("app");
+        const isMobile = window.matchMedia("(pointer: coarse)").matches;
+        const template = document.getElementById(isMobile ? "mobile-template" : "computer-template");
+        app.innerHTML  = template.innerHTML;
+
+        const headerEl = document.querySelector("header");
+
+        const setHeaderHeight = () => { headerEl.style.height = "auto"; document.documentElement.style.setProperty("--header-height", `${headerEl.offsetHeight}px`); headerEl.style.height = ""; };
+
+        const appTitle     = document.querySelector(".title-text");
+        const qrToggle     = document.getElementById("qr-toggle");
+        const qrPopup      = document.getElementById("qr-popup");
+        const qrLink       = document.getElementById("qr-link");
+        const qrCopyButton = document.getElementById("qr-copy");
+        const qrImage      = document.getElementById("qr-image");
+        const themeToggle  = document.getElementById("theme-toggle");
+
+        let themeToggleLocked = false;
+        let copyTimer         = null;
+
+        const copyToClipboard = async (text) => { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; } const textarea = document.createElement("textarea"); textarea.value = text; textarea.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;"; document.body.appendChild(textarea); textarea.focus(); textarea.select(); const isCopied = document.execCommand("copy"); document.body.removeChild(textarea); if (!isCopied) throw new Error("copy failed"); };
+        const toggleQrPopup   = async ()     => { if (qrPopup.style.display === "block") { qrPopup.style.display = "none"; resetCopyButton(); return; } try { const res = await fetch("/api/qr"); const qrData = await res.json(); qrLink.value = qrData.link; qrImage.src = qrData.code; qrPopup.style.display = "block"; const rect = qrToggle.getBoundingClientRect(); let popupLeft = rect.left; if (popupLeft + 218 + 10 > window.innerWidth) popupLeft = window.innerWidth - 218 - 10; qrPopup.style.top = `${rect.bottom + 10}px`; qrPopup.style.left = `${popupLeft}px`; } catch (err) { console.error("QRコードの取得に失敗しました:", err); qrPopup.style.display = "none"; } };
+        const resetCopyButton = ()           => { if (!qrCopyButton) return; clearTimeout(copyTimer); copyTimer = null; qrCopyButton.querySelector(".copy-icon").style.display = "block"; qrCopyButton.querySelector(".check-icon").style.display = "none"; qrCopyButton.classList.remove("copied"); };
+
+        appTitle.addEventListener("click", () => { location.reload(); });
+        if (qrToggle) qrToggle.addEventListener("click", () => { toggleQrPopup(); qrToggle.blur(); });
+        if (qrCopyButton) { const copyIcon = qrCopyButton.querySelector(".copy-icon"); const checkIcon = qrCopyButton.querySelector(".check-icon"); qrCopyButton.addEventListener("click", async (e) => { e.stopPropagation(); qrCopyButton.blur(); try { await copyToClipboard(qrLink.value); copyIcon.style.display = "none"; checkIcon.style.display = "block"; qrCopyButton.classList.add("copied"); clearTimeout(copyTimer); copyTimer = setTimeout(() => { checkIcon.style.display = "none"; copyIcon.style.display = "block"; qrCopyButton.classList.remove("copied"); }, 2000); } catch { } }); }
+        document.addEventListener("click", (e) => { if (qrPopup && !qrPopup.contains(e.target) && e.target !== qrToggle) { qrPopup.style.display = "none"; resetCopyButton(); } });
+        themeToggle.addEventListener("click", () => { if (themeToggleLocked) return; themeToggleLocked = true; const nextTheme = document.body.getAttribute("theme") === "dark" ? "light" : "dark"; applyTheme(nextTheme); themeToggle.blur(); setTimeout(() => { themeToggleLocked = false; }, 650); });
+
+        applyTheme(localStorage.getItem("theme") || detectTheme());
+        window.matchMedia("(prefers-color-scheme: dark)").onchange = (e) => { if (!localStorage.getItem("theme")) applyTheme(e.matches ? "dark" : "light"); };
+
+        const directoryNav = document.getElementById("directory-nav");
+        const refineToggle = document.getElementById("refine-toggle");
+        const headerMiddle = directoryNav.parentElement;
+
+        let navDragging       = false;
+        let navDragStartX     = 0;
+        let navDragScrollLeft = 0;
+        let navDragOccurred   = false;
+
+        const updateNavFade = () => { const hasMore = directoryNav.scrollWidth - directoryNav.scrollLeft - directoryNav.clientWidth > 1; headerMiddle.classList.toggle("nav-overflow", hasMore); headerMiddle.classList.toggle("nav-overflow-left", directoryNav.scrollLeft > 1); };
+
+        directoryNav.addEventListener("scroll", updateNavFade);
+        directoryNav.addEventListener("mousedown", (e) => { navDragging = true; navDragOccurred = false; navDragStartX = e.pageX; navDragScrollLeft = directoryNav.scrollLeft; directoryNav.style.cursor = "grabbing"; });
+        window.addEventListener("mousemove", (e) => { if (!navDragging) return; const dx = e.pageX - navDragStartX; if (Math.abs(dx) > 5) navDragOccurred = true; directoryNav.scrollLeft = navDragScrollLeft - dx; updateNavFade(); });
+        window.addEventListener("mouseup", () => { if (!navDragging) return; navDragging = false; directoryNav.style.cursor = ""; });
+        refineToggle.addEventListener("click", () => { const isOpen = refineToggle.classList.toggle("open"); headerBottom.style.display = isOpen ? "" : "none"; separator.style.display = isOpen ? "" : "none"; headerEl.classList.toggle("refine-closed", !isOpen); setHeaderHeight(); if (activeDirectory) renderGallery(false); });
+
+        const separator = document.querySelector(".separator");
+
+        const headerBottom = document.querySelector(".header-bottom");
+        const filterSelect = document.getElementById("filter-select");
+        const modeToggle   = document.getElementById("mode-toggle");
+        const orderToggle  = document.getElementById("order-toggle");
+
+        filterSelect.addEventListener("change", async () => { if (!activeDirectory) return; const state = dirState.get(activeDirectory.directory); state.filter = filterSelect.value; saveDirSettings(activeDirectory.directory, state); state.loadIdx = 0; state.hasMore = true; activeDirectory.files = []; showLoading(); await fetchFiles(activeDirectory, 0, 100); await renderGallery(false); document.querySelector("main").scrollTop = 0; startBackgroundGalleryLoad(activeDirectory); });
+        modeToggle.addEventListener("click", async () => { const nextMode = modeToggle.textContent === "時系列" ? "名前順" : "時系列"; modeToggle.textContent = nextMode; modeToggle.blur(); if (!activeDirectory) return; const state = dirState.get(activeDirectory.directory); state.mode = nextMode; saveDirSettings(activeDirectory.directory, state); state.loadIdx = 0; state.hasMore = true; activeDirectory.files = []; showLoading(); await fetchFiles(activeDirectory, 0, 100); await renderGallery(false); document.querySelector("main").scrollTop = 0; startBackgroundGalleryLoad(activeDirectory); });
+        orderToggle.addEventListener("click", async () => { const nextOrder = orderToggle.textContent === "昇順" ? "降順" : "昇順"; orderToggle.textContent = nextOrder; orderToggle.blur(); if (!activeDirectory) return; const state = dirState.get(activeDirectory.directory); state.order = nextOrder; saveDirSettings(activeDirectory.directory, state); state.loadIdx = 0; state.hasMore = true; activeDirectory.files = []; showLoading(); await fetchFiles(activeDirectory, 0, 100); await renderGallery(false); document.querySelector("main").scrollTop = 0; startBackgroundGalleryLoad(activeDirectory); });
+
+        headerBottom.style.display = "none";
+        separator.style.display = "none";
+        headerEl.classList.add("refine-closed");
+        setHeaderHeight();
+
+        const loadingOverlay = document.getElementById("loading-overlay");
+        const gallery        = document.getElementById("media-list");
+
+        let scrollObserver  = null;
+        let bgGalleryLoadId = 0;
+
+        const fetchFiles                 = async (dir, fromIndex = 0, limit = 50) => { const state = dirState.get(dir.directory); state.isLoading = true; try { const res = await fetch(`/api/directory/${encodeURIComponent(dir.directory)}?filter=${state.filter}&sort=${sortParam(state.mode)}&order=${orderParam(state.order)}&index=${fromIndex}&limit=${limit}`); const pageData = await res.json(); if (fromIndex === 0) { dir.files = pageData.files; } else { dir.files = (dir.files || []).concat(pageData.files); } dir.imageCount = pageData.imageCount; dir.videoCount = pageData.videoCount; dir.totalCount = pageData.totalCount; state.loadIdx = fromIndex + pageData.files.length; state.hasMore = pageData.hasMore; } catch { if (fromIndex === 0) { dir.files = []; dir.imageCount = 0; dir.videoCount = 0; dir.totalCount = 0; } state.hasMore = false; } finally { state.isLoading = false; } };
+        const startBackgroundGalleryLoad = async (dir)                            => { const loadId = ++bgGalleryLoadId; while (bgGalleryLoadId === loadId) { const state = dirState.get(dir.directory); if (!state.hasMore || state.isLoading) break; await fetchFiles(dir, state.loadIdx, 100); if (bgGalleryLoadId !== loadId) break; refreshMediaList(); await renderGallery(true); if (!state.hasMore) break; } };
+        const createMedia                = async (file)                           => { if (thumbCache.has(file.original)) return thumbCache.get(file.original); const isVideo = isVideoFile(file.original); if (isVideo && file.thumbnail && file.thumbnail.endsWith(".webm")) { const poster = file.thumbnail.replace(/\.webm$/, ".webp"); const posterImg = new Image(); await new Promise((resolve) => { posterImg.onload = () => { layoutCache.set(file.original, { width: posterImg.naturalWidth, height: posterImg.naturalHeight }); resolve(); }; posterImg.onerror = resolve; posterImg.src = poster; }); if (isMobile) { const mediaEl = document.createElement("img"); mediaEl.className = "gallery-item"; mediaEl.dataset.original = file.original; mediaEl.src = poster; mediaEl.addEventListener("touchstart", (e) => { mediaEl._tapStartX = e.touches[0].clientX; mediaEl._tapStartY = e.touches[0].clientY; mediaEl._tapped = true; }, { passive: true }); mediaEl.addEventListener("touchmove", (e) => { if (mediaEl._tapped && (Math.abs(e.touches[0].clientX - mediaEl._tapStartX) > 8 || Math.abs(e.touches[0].clientY - mediaEl._tapStartY) > 8)) mediaEl._tapped = false; }, { passive: true }); mediaEl.addEventListener("touchend", (e) => { if (mediaEl._tapped) { e.preventDefault(); openModal(file); } mediaEl._tapped = false; }, { passive: false }); thumbCache.set(file.original, mediaEl); return mediaEl; } const mediaEl = document.createElement("video"); mediaEl.className = "gallery-item"; mediaEl.dataset.original = file.original; mediaEl.src = file.thumbnail; mediaEl.poster = poster; mediaEl.loop = true; mediaEl.muted = true; mediaEl.playsInline = true; mediaEl.preload = "none"; mediaEl.addEventListener("mouseenter", () => { mediaEl.play(); }); mediaEl.addEventListener("mouseleave", () => { mediaEl.pause(); mediaEl.currentTime = 0; }); mediaEl.addEventListener("click", (e) => { e.stopPropagation(); openModal(file); }); thumbCache.set(file.original, mediaEl); return mediaEl; } const mediaEl = document.createElement("img"); mediaEl.className = "gallery-item"; mediaEl.dataset.original = file.original; mediaEl.src = isVideo ? (file.thumbnail || "/.thumbs/no_video_thumbnail.webp") : (file.thumbnail || "/.thumbs/no_image_thumbnail.webp"); await new Promise((resolve) => { mediaEl.onload = () => { layoutCache.set(file.original, { width: mediaEl.naturalWidth, height: mediaEl.naturalHeight }); resolve(); }; mediaEl.onerror = () => { mediaEl.src = isVideo ? "/.thumbs/no_video_thumbnail.webp" : "/.thumbs/no_image_thumbnail.webp"; resolve(); }; }); if (isMobile) { mediaEl.addEventListener("touchstart", (e) => { mediaEl._tapStartX = e.touches[0].clientX; mediaEl._tapStartY = e.touches[0].clientY; mediaEl._tapped = true; }, { passive: true }); mediaEl.addEventListener("touchmove", (e) => { if (mediaEl._tapped && (Math.abs(e.touches[0].clientX - mediaEl._tapStartX) > 8 || Math.abs(e.touches[0].clientY - mediaEl._tapStartY) > 8)) mediaEl._tapped = false; }, { passive: true }); mediaEl.addEventListener("touchend", (e) => { if (mediaEl._tapped) { e.preventDefault(); openModal(file); } mediaEl._tapped = false; }, { passive: false }); } else { mediaEl.addEventListener("click", (e) => { e.stopPropagation(); openModal(file); }); } thumbCache.set(file.original, mediaEl); return mediaEl; };
+        const renderGallery              = async (append = false)                 => { const state = dirState.get(activeDirectory.directory); let files = (activeDirectory.files || []).slice(); if (files.length === 0) { document.getElementById("empty-message").style.display = "block"; gallery.innerHTML = ""; state.colHeights = null; state.rendered = new Set(); updateCounts(); if (!append) hideLoading(); return; } document.getElementById("empty-message").style.display = "none"; const galleryWidth = gallery.clientWidth; let columns = Math.floor(galleryWidth / (150 + 10)); if (columns < 1) columns = 1; const itemWidth = (galleryWidth - 10 * (columns - 1)) / columns; if (append && state.colHeights && state.colHeights.length !== columns) { append = false; } if (append) { const firstNewIdx = files.findIndex(f => !state.rendered.has(f.original)); if (firstNewIdx !== -1) { const lastRenderedIdx = files.reduce((max, f, i) => state.rendered.has(f.original) ? i : max, -1); if (firstNewIdx < lastRenderedIdx) append = false; } } const filesToRender = append ? files.filter(f => !state.rendered.has(f.original)) : files; if (filesToRender.length === 0) { updateCounts(); if (!append) hideLoading(); return; } const elements = await Promise.all(filesToRender.map(f => createMedia(f))); const colHeights = (append && state.colHeights) ? state.colHeights.slice() : Array(columns).fill(0); const positionedElements = elements.map(el => { const cache = layoutCache.get(el.dataset.original); const isValidCache = cache && cache.width > 0 && cache.height > 0; const itemHeight = isValidCache ? cache.height * (itemWidth / cache.width) : itemWidth * 0.75; el.style.width = itemWidth + "px"; el.style.height = "auto"; if (isValidCache) el.style.aspectRatio = `${cache.width} / ${cache.height}`; const minCol = colHeights.indexOf(Math.min(...colHeights)); el.style.transform = `translate(${minCol * (itemWidth + 10)}px, ${colHeights[minCol]}px)`; colHeights[minCol] += itemHeight + 10; return el; }); const totalHeight = Math.max(0, ...colHeights) - 10; if (!append) { gallery.innerHTML = ""; state.rendered = new Set(); } for (const el of positionedElements) { gallery.appendChild(el); state.rendered.add(el.dataset.original); } gallery.style.height = totalHeight + "px"; state.colHeights = colHeights; updateCounts(); if (!append) hideLoading(); };
+        const setupScrollObserver        = ()                                     => { if (scrollObserver) scrollObserver.disconnect(); const sentinel = document.getElementById("scroll-sentinel"); const mainContent = document.querySelector("main"); if (!sentinel || !mainContent) return; scrollObserver = new IntersectionObserver(async (entries) => { if (!entries[0].isIntersecting || !activeDirectory) return; const state = dirState.get(activeDirectory.directory); if (!state || !state.hasMore || state.isLoading) return; await fetchFiles(activeDirectory, state.loadIdx); await renderGallery(true); }, { root: mainContent, threshold: 0.1 }); scrollObserver.observe(sentinel); };
+
+        window.addEventListener("resize", () => { if (qrPopup && qrPopup.style.display === "block" && qrToggle) { const rect = qrToggle.getBoundingClientRect(); let popupLeft = rect.left; if (popupLeft + 218 + 10 > window.innerWidth) popupLeft = window.innerWidth - 218 - 10; qrPopup.style.top = `${rect.bottom + 10}px`; qrPopup.style.left = `${popupLeft}px`; } updateNavFade(); if (activeDirectory) renderGallery(false); });
+
+        const modal        = document.getElementById("media-modal");
+        const modalImage   = modal.querySelector("img");
+        const modalVideo   = modal.querySelector("video");
+        const mediaCounter = modal.querySelector(".media-counter");
+
+        let mediaList          = [];
+        let currentIndex       = 0;
+        let touchStartX        = 0;
+        let touchStartY        = 0;
+        let touchIsSwipe       = false;
+        let videoControlsTimer = null;
+        let bgModalLoadId      = 0;
+        let bgPreloadId        = 0;
+
+        const computeTotalMediaCount = ()                  => { if (!activeDirectory) return 0; const state = dirState.get(activeDirectory.directory); if (state.filter === "image") return activeDirectory.imageCount || 0; if (state.filter === "video") return activeDirectory.videoCount || 0; return activeDirectory.totalCount || 0; };
+        const refreshMediaList       = ()                  => { mediaList = (activeDirectory.files || []).slice(); };
+        const loadMoreInModal        = async ()            => { const state = dirState.get(activeDirectory.directory); if (!state.hasMore || state.isLoading) return; const loadedCount = (activeDirectory.files || []).length; if (currentIndex < loadedCount - 5) return; await fetchFiles(activeDirectory, state.loadIdx, 100); refreshMediaList(); await renderGallery(true); };
+        const preloadMedia           = (index)             => { if (index < 0 || index >= mediaList.length) return; const media = mediaList[index]; if (!media) return; if (isVideoFile(media.original)) { const videoEl = document.createElement("video"); videoEl.src = media.original; videoEl.preload = "auto"; } else { const imgEl = new Image(); imgEl.src = media.original; } };
+        const isFullyCached          = (media)             => { if (fullLoadedSet.has(media.original)) return true; if (isVideoFile(media.original)) return false; const img = new Image(); img.src = media.original; if (img.complete && img.naturalWidth > 0) { fullLoadedSet.add(media.original); return true; } return false; };
+        const fetchMediaFully        = (index)             => new Promise((resolve) => { if (index < 0 || index >= mediaList.length) { resolve(); return; } const media = mediaList[index]; if (!media) { resolve(); return; } if (isFullyCached(media)) { resolve(); return; } if (isVideoFile(media.original)) { const videoEl = document.createElement("video"); videoEl.addEventListener("canplay", () => { fullLoadedSet.add(media.original); resolve(); }, { once: true }); videoEl.addEventListener("error", () => resolve(), { once: true }); videoEl.preload = "auto"; videoEl.src = media.original; } else { const imgEl = new Image(); imgEl.onload = () => { fullLoadedSet.add(media.original); resolve(); }; imgEl.onerror = resolve; imgEl.src = media.original; } });
+        const startBackgroundPreload = async (centerIndex) => { const loadId = ++bgPreloadId; let offset = 6; while (bgPreloadId === loadId) { const fwd = centerIndex + offset; const bwd = centerIndex - offset; const hasFwd = fwd < mediaList.length; const hasBwd = bwd >= 0; if (!hasFwd && !hasBwd) break; if (hasBwd && mediaList[bwd]) { await fetchMediaFully(bwd); if (bgPreloadId !== loadId) break; } if (hasFwd && mediaList[fwd]) { await fetchMediaFully(fwd); if (bgPreloadId !== loadId) break; } offset++; } };
+        const updateModal            = ()                  => { const loadId = ++bgModalLoadId; const media = mediaList[currentIndex]; if (!media) return; const isVideoMedia = isVideoFile(media.original); const targetSrc = media.original; modalVideo.style.display = "none"; modalVideo.pause(); modalVideo.src = ""; modalImage.style.display = "block"; hideVideoControls(); if (isVideoMedia) { modalImage.src = "/.thumbs/dummy_image.webp"; const showVideo = () => { if (bgModalLoadId !== loadId) return; modalVideo.style.display = "block"; modalImage.style.display = "none"; modalVideo.play(); }; modalVideo.addEventListener("canplay", function onCanPlay() { modalVideo.removeEventListener("canplay", onCanPlay); showVideo(); }); modalVideo.src = targetSrc; if (modalVideo.readyState >= 3) showVideo(); } else { const checkImg = new Image(); checkImg.src = targetSrc; if (checkImg.complete && checkImg.naturalWidth > 0) { modalImage.src = targetSrc; } else { modalImage.src = "/.thumbs/dummy_image.webp"; checkImg.onload = () => { if (bgModalLoadId !== loadId) return; modalImage.src = targetSrc; }; } } mediaCounter.textContent = `${currentIndex + 1} / ${computeTotalMediaCount()}`; let pStart = Math.max(0, currentIndex - 5); let pEnd = pStart + 10; if (pEnd >= mediaList.length) { pEnd = mediaList.length - 1; pStart = Math.max(0, pEnd - 10); } for (let i = pStart; i <= pEnd; i++) preloadMedia(i); startBackgroundPreload(currentIndex); loadMoreInModal(); };
+        const openModal              = (file)              => { refreshMediaList(); currentIndex = mediaList.findIndex((f) => f && f.original === file.original); if (currentIndex === -1) currentIndex = 0; const el = gallery.querySelector(`[data-original="${CSS.escape(file.original)}"]`); if (el) { const transformMatch = el.style.transform.match(/translate\([^,]+,\s*([\d.]+)px\)/); if (transformMatch) { const mainContent = document.querySelector("main"); mainContent.scrollTop = Math.max(0, parseFloat(transformMatch[1]) + el.offsetHeight / 2 - mainContent.clientHeight / 2); } gallery.querySelectorAll(".gallery-item.highlight").forEach(h => h.classList.remove("highlight")); } modal.style.display = "flex"; document.body.classList.add("no-scroll"); updateModal(); };
+        const showVideoControls      = ()                  => { if (modalVideo.style.display === "none") return; modalVideo.controls = true; clearTimeout(videoControlsTimer); videoControlsTimer = setTimeout(() => { modalVideo.controls = false; }, 2000); };
+        const hideVideoControls      = ()                  => { clearTimeout(videoControlsTimer); modalVideo.controls = false; };
+        const closeModal             = ()                  => { bgPreloadId++; const closedFile = mediaList[currentIndex]; modal.style.display = "none"; modalVideo.pause(); modalVideo.src = ""; modalImage.src = ""; hideVideoControls(); document.body.classList.remove("no-scroll"); gallery.style.pointerEvents = "none"; setTimeout(() => { gallery.style.pointerEvents = ""; }, 400); if (closedFile) { const el = gallery.querySelector(`[data-original="${CSS.escape(closedFile.original)}"]`); if (el) { const transformMatch = el.style.transform.match(/translate\([^,]+,\s*([\d.]+)px\)/); if (transformMatch) { const mainContent = document.querySelector("main"); mainContent.scrollTop = Math.max(0, parseFloat(transformMatch[1]) + el.offsetHeight / 2 - mainContent.clientHeight / 2); } gallery.querySelectorAll(".gallery-item.highlight").forEach(h => h.classList.remove("highlight")); el.classList.add("highlight"); setTimeout(() => el.classList.remove("highlight"), 2000); } } };
+
+        modal.addEventListener("click", () => { if (touchIsSwipe) return; closeModal(); });
+        modalImage.addEventListener("click", (e) => { e.stopPropagation(); });
+        modalVideo.addEventListener("click", (e) => { e.stopPropagation(); showVideoControls(); });
+        modalVideo.addEventListener("mousemove", () => showVideoControls());
+        modalVideo.addEventListener("touchstart", () => showVideoControls(), { passive: true });
+        document.addEventListener("keydown", (e) => { if (modal.style.display !== "flex") return; if (e.key === "ArrowDown") { e.preventDefault(); if (currentIndex < mediaList.length - 1) { currentIndex++; updateModal(); } } if (e.key === "ArrowUp") { e.preventDefault(); if (currentIndex > 0) { currentIndex--; updateModal(); } } if (e.key === "Escape") closeModal(); });
+        modal.addEventListener("wheel", (e) => { if (modal.style.display !== "flex") return; e.preventDefault(); if (e.deltaY > 0) { if (currentIndex < mediaList.length - 1) { currentIndex++; updateModal(); } } else if (e.deltaY < 0) { if (currentIndex > 0) { currentIndex--; updateModal(); } } }, { passive: false });
+        modal.addEventListener("touchstart", (e) => { touchIsSwipe = false; touchStartX = e.changedTouches[0].screenX; touchStartY = e.changedTouches[0].screenY; });
+        modal.addEventListener("touchmove", (e) => { const dx = e.touches[0].screenX - touchStartX; const dy = e.touches[0].screenY - touchStartY; if (Math.abs(dx) > 10 || Math.abs(dy) > 10) touchIsSwipe = true; });
+        modal.addEventListener("touchend", (e) => { const dx = e.changedTouches[0].screenX - touchStartX; const dy = e.changedTouches[0].screenY - touchStartY; if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 30) { if (dy < 0) { if (currentIndex < mediaList.length - 1) { currentIndex++; updateModal(); } } if (dy > 0) { if (currentIndex > 0) { currentIndex--; updateModal(); } } } });
+
+        const allCount   = document.getElementById("all-count");
+        const imageCount = document.getElementById("image-count");
+        const videoCount = document.getElementById("video-count");
+
+        const updateCounts = () => { if (!activeDirectory) return; const imgCount = activeDirectory.imageCount || 0; const vidCount = activeDirectory.videoCount || 0; const totalCount = activeDirectory.totalCount || 0; if (imageCount) imageCount.textContent = `画像: ${imgCount.toLocaleString()}`; if (videoCount) videoCount.textContent = `動画: ${vidCount.toLocaleString()}`; if (allCount) { allCount.textContent = `全て: ${totalCount.toLocaleString()}`; } };
+
+        const fetchDirectories = async () => { try { const res = await fetch("/api/directories"); const dirList = await res.json(); const directories = dirList.directories.map((name) => ({ directory: name })); directories.forEach((dir) => { if (!dirState.has(dir.directory)) { const saved = loadDirSettings(dir.directory); dirState.set(dir.directory, { filter: saved.filter || "all", mode: saved.mode || "名前順", order: saved.order || "昇順", loadIdx: 0, hasMore: true, isLoading: false, colHeights: null, rendered: new Set() }); } const navButton = document.createElement("button"); navButton.textContent = dir.directory; navButton.addEventListener("click", async () => { if (navDragOccurred) { navDragOccurred = false; return; } if (navButton.classList.contains("active")) return; activeDirectory = dir; const state = dirState.get(dir.directory); state.loadIdx = 0; state.hasMore = true; dir.files = []; filterSelect.value = state.filter; modeToggle.textContent = state.mode; orderToggle.textContent = state.order; Array.from(directoryNav.children).forEach((navBtn) => navBtn.classList.remove("active")); navButton.classList.add("active"); localStorage.setItem("lastDirectory", dir.directory); document.querySelector("main").scrollTop = 0; showLoading(); await fetchFiles(dir, 0, 100); await renderGallery(false); startBackgroundGalleryLoad(dir); }); directoryNav.appendChild(navButton); }); requestAnimationFrame(updateNavFade); if (directories.length > 0) { const savedName = localStorage.getItem("lastDirectory"); const savedIndex = savedName ? directories.findIndex(d => d.directory === savedName) : -1; const initIndex = savedIndex !== -1 ? savedIndex : 0; activeDirectory = directories[initIndex]; directoryNav.children[initIndex].classList.add("active"); const state = dirState.get(activeDirectory.directory); filterSelect.value = state.filter; modeToggle.textContent = state.mode; orderToggle.textContent = state.order; showLoading(); await fetchFiles(activeDirectory, 0, 100); await renderGallery(false); setupScrollObserver(); startBackgroundGalleryLoad(activeDirectory); } } catch { } };
+
+        fetchDirectories();
+    </script>
+</body>
+</html>
