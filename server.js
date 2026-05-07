@@ -23,6 +23,86 @@ const PORT = process.env.PORT || 3080;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const LOGS_DIR = path.join(__dirname, "logs");
+fs.ensureDirSync(LOGS_DIR);
+
+function getClientIp(req) {
+	const xff = req.headers["x-forwarded-for"];
+	if (xff) return xff.split(",")[0].trim();
+	return (req.ip || req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+}
+
+function formatLogTimestamp(date = new Date()) {
+	const pad = (n, w = 2) => String(n).padStart(w, "0");
+	return `${date.getFullYear()}/${pad(date.getMonth()+1)}/${pad(date.getDate())} ` + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
+function getAccessLogPath(date = new Date()) {
+	const pad = (n) => String(n).padStart(2, "0");
+	return path.join(LOGS_DIR, `${date.getFullYear()}_${pad(date.getMonth()+1)}_${pad(date.getDate())}.log`);
+}
+
+function formatBytes(bytes) {
+	if (bytes >= 1024**3) return `${(bytes/1024**3).toFixed(1)}GB`;
+	if (bytes >= 1024**2) return `${(bytes/1024**2).toFixed(1)}MB`;
+	if (bytes >= 1024)    return `${(bytes/1024).toFixed(1)}KB`;
+	return `${bytes || 0}B`;
+}
+
+function errorCodeToJa(err) {
+	const code = err?.code;
+	if (code === "EBUSY")  return "ファイルロック中 (EBUSY)";
+	if (code === "EACCES") return "アクセス権限なし (EACCES)";
+	if (code === "ENOSPC") return "ディスク容量不足 (ENOSPC)";
+	if (code === "ENOENT") return "ファイル不在 (ENOENT)";
+	return err?.message || String(err);
+}
+
+function safeDecodeUrl(url) {
+	try { return decodeURIComponent(url); }
+	catch { return url; }
+}
+
+function writeAccessLog(level, ip, method, url, status, durationMs, info) {
+	const reqLine = `"${method} ${safeDecodeUrl(url)}"`;
+	const infoStr = info ? ` ${info}` : "";
+	const line = `[${formatLogTimestamp()}] ${level} <${ip}> ${reqLine} -> ${status} (${durationMs}ms)${infoStr}`;
+	fs.appendFile(getAccessLogPath(), line + "\n", () => {});
+	const colors = { INFO: "\x1b[37m", WARN: "\x1b[33m", ERROR: "\x1b[31m" };
+	const color = colors[level] || colors.INFO;
+	console.log(`${color}${line}\x1b[0m`);
+}
+
+const loginFailCounts = new Map();
+
+app.use((req, res, next) => {
+	const start = Date.now();
+	let logged = false;
+	const doLog = () => {
+		if (logged) return;
+		logged = true;
+		const ip = getClientIp(req);
+		const status = res.statusCode;
+		const duration = Date.now() - start;
+		let info = res.locals.logInfo;
+		if (info === undefined) {
+			if (/\.(jpe?g|png|webp|mp4|mov|gif|webm|ico)$/i.test(req.originalUrl.split("?")[0]) && (status === 200 || status === 206)) {
+				const cl = res.get("Content-Length");
+				if (cl) {
+					const size = formatBytes(parseInt(cl));
+					info = status === 206 ? `size=${size}（部分取得）` : `size=${size}`;
+				}
+			}
+			if (info === undefined) info = "";
+		}
+		const level = res.locals.logLevel || (status >= 500 ? "ERROR" : "INFO");
+		writeAccessLog(level, ip, req.method, req.originalUrl, status, duration, info);
+	};
+	res.on("finish", () => setImmediate(doLog));
+	res.on("close",  () => setImmediate(doLog));
+	next();
+});
+
 const _config = (() => {
 	try { return JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8")); }
 	catch { return {}; }
@@ -35,12 +115,18 @@ const AUTH_TOKEN = PASSWORD ? crypto.createHash("sha256").update(PASSWORD + cryp
 if (AUTH_TOKEN) {
 	app.use(express.urlencoded({ extended: false }));
 	app.get("/login", (req, res) => {
-		if (isAuthenticated(req) && parseCookies(req)["auth_saved"] === "1") return res.redirect("/");
+		if (isAuthenticated(req) && parseCookies(req)["auth_saved"] === "1") {
+			res.locals.logInfo = "認証済";
+			return res.redirect("/");
+		}
 		res.sendFile(path.join(PUBLIC_DIR, "login.html"));
 	});
 	app.post("/login", (req, res) => {
+		const ip = getClientIp(req);
 		if ((req.body.password || "").trim() === PASSWORD) {
+			loginFailCounts.delete(ip);
 			const isRemember = req.body.save === "on";
+			res.locals.logInfo = `認証成功 save=${isRemember}`;
 			if (isRemember) {
 				res.setHeader("Set-Cookie", [
 					`auth=${AUTH_TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
@@ -54,6 +140,10 @@ if (AUTH_TOKEN) {
 			}
 			res.redirect("/");
 		} else {
+			const count = (loginFailCounts.get(ip) || 0) + 1;
+			loginFailCounts.set(ip, count);
+			res.locals.logLevel = "WARN";
+			res.locals.logInfo  = `認証失敗 count=${count}`;
 			res.redirect("/login?error=true");
 		}
 	});
@@ -67,6 +157,9 @@ if (AUTH_TOKEN) {
 				`auth=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
 				`auth_saved=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
 			]);
+			res.locals.logInfo = "クッキー失効";
+		} else {
+			res.locals.logInfo = "未認証";
 		}
 		res.redirect("/login");
 	});
@@ -110,6 +203,8 @@ app.get("/api/qr", async (req, res) => {
     const code = "/.thumbs/qr_code_image.webp";
     res.json({ link, code });
   } catch (err) {
+    res.locals.logLevel = "ERROR";
+    res.locals.logInfo  = "QRコード情報取得失敗";
     log("ERROR", `QRコード情報取得失敗: ${err.message}`);
     res.status(500).json({ error: "QRコード情報の取得に失敗しました" });
   }
@@ -160,8 +255,14 @@ app.get("/api/directories", async (req,res) => {
 			const size = stats.reduce((sum, s) => sum + s.size, 0);
 			directories.push({ name: dir.name, size });
 		}
+		res.locals.logInfo = `total=${directories.length}件`;
 		res.json({directories});
-	} catch(err) { log("ERROR", `ディレクトリ一覧取得失敗: ${err.message}`); res.status(500).json({ error:"ディレクトリ一覧取得に失敗しました" }); }
+	} catch(err) {
+		res.locals.logLevel = "ERROR";
+		res.locals.logInfo  = errorCodeToJa(err);
+		log("ERROR", `ディレクトリ一覧取得失敗: ${err.message}`);
+		res.status(500).json({ error:"ディレクトリ一覧取得に失敗しました" });
+	}
 });
 
 app.get("/api/directory/:directory", async (req,res) => {
@@ -173,11 +274,16 @@ app.get("/api/directory/:directory", async (req,res) => {
 	const limit     = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 100));
 	try {
 		const dirPath = path.join(PUBLIC_DIR, directory);
-		if (!await fs.pathExists(dirPath) || !(await fs.stat(dirPath)).isDirectory())
+		if (!await fs.pathExists(dirPath) || !(await fs.stat(dirPath)).isDirectory()) {
+			res.locals.logInfo = "ディレクトリ不在";
 			return res.status(404).json({ error: "ディレクトリが存在しません" });
+		}
 
 		const allFiles = (await fs.readdir(dirPath)).filter(f => /\.(jpe?g|png|webp|mp4|mov|gif|webm)$/i.test(f));
-		if (!allFiles.length) return res.status(404).json({ error: "ディレクトリが空です" });
+		if (!allFiles.length) {
+			res.locals.logInfo = "空ディレクトリ";
+			return res.status(404).json({ error: "ディレクトリが空です" });
+		}
 
 		const totalCount = allFiles.length;
 		const imageCount = allFiles.filter(f => /\.(jpe?g|png|webp)$/i.test(f)).length;
@@ -217,8 +323,11 @@ app.get("/api/directory/:directory", async (req,res) => {
 
 		const hasMore = index + limit < filteredFiles.length;
 
+		res.locals.logInfo = hasMore ? `items=${filesData.length}件` : `items=${filesData.length}件（次ページなし）`;
 		res.json({ files: filesData, totalCount, imageCount, videoCount, hasMore });
 	} catch(err) {
+		res.locals.logLevel = "ERROR";
+		res.locals.logInfo  = errorCodeToJa(err);
 		log("ERROR", `「${directory}」ディレクトリのメディア読み込み失敗: ${err.message}`);
 		res.status(500).json({ error: "メディアファイル読み込みに失敗しました" });
 	}
@@ -228,16 +337,41 @@ app.get("/api/download", async (req, res) => {
 	try {
 		const dirsParam = req.query.dirs || "";
 		const requestedDirs = dirsParam.split(",").map(s => s.trim()).filter(Boolean);
-		if (!requestedDirs.length) return res.status(400).json({ error: "ディレクトリが指定されていません" });
+		if (!requestedDirs.length) {
+			res.locals.logInfo = "ディレクトリ未指定";
+			return res.status(400).json({ error: "ディレクトリが指定されていません" });
+		}
+
+		if (requestedDirs.some(d => d.includes(".."))) {
+			res.locals.logLevel = "WARN";
+			res.locals.logInfo  = "パストラバーサル試行";
+			return res.status(400).json({ error: "不正なディレクトリ名です" });
+		}
+
+		const hasReservedAccess = requestedDirs.some(d => d === ".thumbs");
 
 		const validDirs = [];
 		for (const dirName of requestedDirs) {
-			if (dirName.includes("..") || dirName.includes("/") || dirName.includes("\\") || dirName === ".thumbs") continue;
+			if (dirName.includes("/") || dirName.includes("\\") || dirName === ".thumbs") continue;
 			const dirPath = path.join(PUBLIC_DIR, dirName);
 			if (!await fs.pathExists(dirPath) || !(await fs.stat(dirPath)).isDirectory()) continue;
 			validDirs.push(dirName);
 		}
-		if (!validDirs.length) return res.status(404).json({ error: "有効なディレクトリがありません" });
+		if (!validDirs.length) {
+			if (hasReservedAccess) res.locals.logLevel = "WARN";
+			res.locals.logInfo = "有効ディレクトリなし";
+			return res.status(404).json({ error: "有効なディレクトリがありません" });
+		}
+
+		let totalSize = 0;
+		const dirFileMap = new Map();
+		for (const dirName of validDirs) {
+			const dirPath = path.join(PUBLIC_DIR, dirName);
+			const files = (await fs.readdir(dirPath)).filter(f => /\.(jpe?g|png|webp|mp4|mov|gif|webm)$/i.test(f));
+			dirFileMap.set(dirName, files);
+			const stats = await Promise.all(files.map(f => fs.stat(path.join(dirPath, f))));
+			totalSize += stats.reduce((sum, s) => sum + s.size, 0);
+		}
 
 		const date = new Date();
 		const timestamp = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2,'0')}${String(date.getDate()).padStart(2,'0')}_${String(date.getHours()).padStart(2,'0')}${String(date.getMinutes()).padStart(2,'0')}${String(date.getSeconds()).padStart(2,'0')}`;
@@ -246,20 +380,42 @@ app.get("/api/download", async (req, res) => {
 		res.setHeader("Content-Type", "application/zip");
 		res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
 
+		let bytesSent = 0;
+		const originalWrite = res.write.bind(res);
+		res.write = function(chunk, ...args) {
+			if (chunk) bytesSent += Buffer.byteLength(chunk);
+			return originalWrite(chunk, ...args);
+		};
+
 		const archive = archiver("zip", { store: true });
-		archive.on("error", (err) => { log("ERROR", `ZIP生成エラー: ${err.message}`); if (!res.headersSent) res.status(500).end(); });
-		res.on("close", () => { if (!res.writableEnded) archive.abort(); });
+		archive.on("error", (err) => {
+			res.locals.logLevel = "ERROR";
+			res.locals.logInfo  = errorCodeToJa(err);
+			log("ERROR", `ZIP生成エラー: ${err.message}`);
+			if (!res.headersSent) res.status(500).end();
+		});
+		res.on("close", () => {
+			if (!res.writableEnded) {
+				res.locals.logLevel = "WARN";
+				res.locals.logInfo  = `total=${validDirs.length}件/size=${formatBytes(bytesSent)}/${formatBytes(totalSize)}（中断）`;
+				archive.abort();
+			}
+		});
 		archive.pipe(res);
 
-		for (const dirName of validDirs) {
+		for (const [dirName, files] of dirFileMap) {
 			const dirPath = path.join(PUBLIC_DIR, dirName);
-			const files = (await fs.readdir(dirPath)).filter(f => /\.(jpe?g|png|webp|mp4|mov|gif|webm)$/i.test(f));
 			for (const file of files) archive.file(path.join(dirPath, file), { name: `${dirName}/${file}` });
 		}
 
 		await archive.finalize();
+		if (res.writableEnded || !res.locals.logInfo) {
+			res.locals.logInfo = `total=${validDirs.length}件/size=${formatBytes(bytesSent)}`;
+		}
 		log("INFO", `ZIPダウンロード: ${filename} (${validDirs.length}件 / ${validDirs.join(", ")})`);
 	} catch (err) {
+		res.locals.logLevel = "ERROR";
+		res.locals.logInfo  = errorCodeToJa(err);
 		log("ERROR", `ZIPダウンロード失敗: ${err.message}`);
 		if (!res.headersSent) res.status(500).json({ error: "ZIPダウンロードに失敗しました" });
 	}
@@ -543,16 +699,20 @@ function getVideoVf(stream) {
 	}
 }
 
-function log(level, message, overwrite = false) {
+function log(level, message, overwrite = false, persist = false) {
 	const date = new Date();
-	const timestamp = `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2,'0')}/${String(date.getDate()).padStart(2,'0')} `
-					+ `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}:${String(date.getSeconds()).padStart(2,'0')}.${String(date.getMilliseconds()).padStart(3,'0')}`;
+	const timestamp = formatLogTimestamp(date);
 	const prefix = { INFO: "INFO ", WARN: "WARN ", ERROR: "ERROR " }[level] || "";
 	const colors = { INFO: "\x1b[37m", WARN: "\x1b[33m", ERROR: "\x1b[31m", RESET: "\x1b[0m" };
 	const color = colors[level] || colors.INFO;
 	const line = `[${timestamp}] ${prefix}${message}`;
 	if (overwrite) process.stdout.write(`\r${color}${line}${colors.RESET}`);
 	else console.log(`${color}${line}${colors.RESET}`);
+	if (persist) {
+		const fileMessage = typeof persist === "string" ? persist : message;
+		const fileLine = `[${timestamp}] ${prefix}${fileMessage}`;
+		fs.appendFile(getAccessLogPath(date), fileLine + "\n", () => {});
+	}
 }
 
 async function processInBatches(tasks, batchSize, handler) {
@@ -654,7 +814,7 @@ function logSeparator() {
 
 	const server = app.listen(PORT, "0.0.0.0", async () => {
 		const url = TAILNET_DOMAIN ? `https://${TAILNET_DOMAIN}` : `http://${getIPAddress()}:${PORT}`;
-		log("INFO", `サーバー起動: ${url}（ブラウザを開きます）`);
+		log("INFO", `サーバー起動: ${url}（ブラウザを開きます）`, false, `サーバー起動: ${url}`);
 		if (TAILNET_DOMAIN) await generateqrcodeImage(url);
 		open(url).catch(() => log("WARN", "ブラウザを開けませんでした"));
 	});

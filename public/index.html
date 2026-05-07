@@ -429,8 +429,8 @@
 
         if (downloadButton) downloadButton.addEventListener("click", () => { toggleDownloadModal(); downloadButton.blur(); });
         if (downloadModal) downloadModal.addEventListener("click", (e) => { if (e.target === downloadModal) toggleDownloadModal(); });
-        if (downloadExecute) downloadExecute.addEventListener("click", () => { if (downloadExecute.disabled) return; triggerZipDownload(Array.from(downloadSelected)); });
-        if (downloadAll) downloadAll.addEventListener("click", () => { triggerZipDownload(Array.from(directoryNav.children).map((navBtn) => navBtn.textContent)); });
+        if (downloadExecute) downloadExecute.addEventListener("click", () => { if (downloadExecute.disabled) return; triggerZipDownload(Array.from(downloadSelected)); toggleDownloadModal(); });
+        if (downloadAll) downloadAll.addEventListener("click", () => { triggerZipDownload(Array.from(directoryNav.children).map((navBtn) => navBtn.textContent)); toggleDownloadModal(); });
 
         const directoryNav = document.getElementById("directory-nav");
         const refineToggle = document.getElementById("refine-toggle");
