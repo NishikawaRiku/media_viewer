@@ -7,6 +7,7 @@ import open from "open";
 import crypto from "crypto";
 import sharp from "sharp";
 import qrcode from "qrcode";
+import archiver from "archiver";
 import ffmpeg from "@ts-ffmpeg/fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 import ffprobeStatic from "ffprobe-static";
@@ -152,8 +153,12 @@ app.get("/api/directories", async (req,res) => {
 		const directories = [];
 		for (const dir of entries) {
 			if(!dir.isDirectory() || dir.name===".thumbs") continue;
-			const files = (await fs.readdir(path.join(PUBLIC_DIR, dir.name))).filter(f=>/\.(jpe?g|png|webp|mp4|mov|gif|webm)$/i.test(f));
-			if(files.length) directories.push(dir.name);
+			const dirPath = path.join(PUBLIC_DIR, dir.name);
+			const files = (await fs.readdir(dirPath)).filter(f=>/\.(jpe?g|png|webp|mp4|mov|gif|webm)$/i.test(f));
+			if(!files.length) continue;
+			const stats = await Promise.all(files.map(f => fs.stat(path.join(dirPath, f))));
+			const size = stats.reduce((sum, s) => sum + s.size, 0);
+			directories.push({ name: dir.name, size });
 		}
 		res.json({directories});
 	} catch(err) { log("ERROR", `ディレクトリ一覧取得失敗: ${err.message}`); res.status(500).json({ error:"ディレクトリ一覧取得に失敗しました" }); }
@@ -216,6 +221,47 @@ app.get("/api/directory/:directory", async (req,res) => {
 	} catch(err) {
 		log("ERROR", `「${directory}」ディレクトリのメディア読み込み失敗: ${err.message}`);
 		res.status(500).json({ error: "メディアファイル読み込みに失敗しました" });
+	}
+});
+
+app.get("/api/download", async (req, res) => {
+	try {
+		const dirsParam = req.query.dirs || "";
+		const requestedDirs = dirsParam.split(",").map(s => s.trim()).filter(Boolean);
+		if (!requestedDirs.length) return res.status(400).json({ error: "ディレクトリが指定されていません" });
+
+		const validDirs = [];
+		for (const dirName of requestedDirs) {
+			if (dirName.includes("..") || dirName.includes("/") || dirName.includes("\\") || dirName === ".thumbs") continue;
+			const dirPath = path.join(PUBLIC_DIR, dirName);
+			if (!await fs.pathExists(dirPath) || !(await fs.stat(dirPath)).isDirectory()) continue;
+			validDirs.push(dirName);
+		}
+		if (!validDirs.length) return res.status(404).json({ error: "有効なディレクトリがありません" });
+
+		const date = new Date();
+		const timestamp = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2,'0')}${String(date.getDate()).padStart(2,'0')}_${String(date.getHours()).padStart(2,'0')}${String(date.getMinutes()).padStart(2,'0')}${String(date.getSeconds()).padStart(2,'0')}`;
+		const filename = `media_viewer_${timestamp}.zip`;
+
+		res.setHeader("Content-Type", "application/zip");
+		res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+
+		const archive = archiver("zip", { store: true });
+		archive.on("error", (err) => { log("ERROR", `ZIP生成エラー: ${err.message}`); if (!res.headersSent) res.status(500).end(); });
+		res.on("close", () => { if (!res.writableEnded) archive.abort(); });
+		archive.pipe(res);
+
+		for (const dirName of validDirs) {
+			const dirPath = path.join(PUBLIC_DIR, dirName);
+			const files = (await fs.readdir(dirPath)).filter(f => /\.(jpe?g|png|webp|mp4|mov|gif|webm)$/i.test(f));
+			for (const file of files) archive.file(path.join(dirPath, file), { name: `${dirName}/${file}` });
+		}
+
+		await archive.finalize();
+		log("INFO", `ZIPダウンロード: ${filename} (${validDirs.length}件 / ${validDirs.join(", ")})`);
+	} catch (err) {
+		log("ERROR", `ZIPダウンロード失敗: ${err.message}`);
+		if (!res.headersSent) res.status(500).json({ error: "ZIPダウンロードに失敗しました" });
 	}
 });
 
